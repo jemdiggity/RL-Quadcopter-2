@@ -60,10 +60,15 @@ class Actor:
         states = layers.Input(shape=(self.state_size,), name='states')
 
         # Add hidden layers
-        net = layers.Dense(units=32, activation='relu')(states)
-        net = layers.Dense(units=64, activation='relu')(net)
-        net = layers.Dense(units=32, activation='relu')(net)
-
+        net = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(states)
+        net = layers.BatchNormalization()(net)
+        net = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net)
+        net = layers.BatchNormalization()(net)
+        net = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net)
+        net = layers.BatchNormalization()(net)
+#         net = layers.Dense(units=320, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net)
+#         net = layers.BatchNormalization()(net)
+        
         # Try different layer sizes, activations, add batch normalization, regularizers, etc.
 
         # Add final output layer with sigmoid activation
@@ -84,7 +89,7 @@ class Actor:
         # Incorporate any additional losses here (e.g. from regularizers)
 
         # Define optimizer and training function
-        optimizer = optimizers.Adam()
+        optimizer = optimizers.Adam(lr=0.001) # learning rate from DDPG paper
         updates_op = optimizer.get_updates(params=self.model.trainable_weights, loss=loss)
         self.train_fn = K.function(
             inputs=[self.model.input, action_gradients, K.learning_phase()],
@@ -116,13 +121,21 @@ class Critic:
         actions = layers.Input(shape=(self.action_size,), name='actions')
 
         # Add hidden layer(s) for state pathway
-        net_states = layers.Dense(units=32, activation='relu')(states)
-        net_states = layers.Dense(units=64, activation='relu')(net_states)
-
+        net_states = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(states)
+        net_states = layers.BatchNormalization()(net_states)
+        net_states = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net_states)
+        net_states = layers.BatchNormalization()(net_states)
+#         net_states = layers.Dense(units=64, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net_states)
+#         net_states = layers.BatchNormalization()(net_states)
+        
         # Add hidden layer(s) for action pathway
-        net_actions = layers.Dense(units=32, activation='relu')(actions)
-        net_actions = layers.Dense(units=64, activation='relu')(net_actions)
-
+        net_actions = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(actions)
+        net_actions = layers.BatchNormalization()(net_actions)
+        net_actions = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net_actions)
+        net_actions = layers.BatchNormalization()(net_actions)
+#         net_actions = layers.Dense(units=64, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net_actions)
+#         net_actions = layers.BatchNormalization()(net_actions)
+        
         # Try different layer sizes, activations, add batch normalization, regularizers, etc.
 
         # Combine state and action pathways
@@ -138,7 +151,7 @@ class Critic:
         self.model = models.Model(inputs=[states, actions], outputs=Q_values)
 
         # Define optimizer and compile model for training with built-in loss function
-        optimizer = optimizers.Adam()
+        optimizer = optimizers.Adam(lr=0.001) # learning rate from DDPG paper
         self.model.compile(optimizer=optimizer, loss='mse')
 
         # Compute action gradients (derivative of Q values w.r.t. to actions)
@@ -196,28 +209,40 @@ class DDPG():
 
         # Noise process
         self.exploration_mu = 0
-        self.exploration_theta = 0.15
-        self.exploration_sigma = 0.2
+        self.exploration_theta = 0.15 #from DDPG paper
+        self.exploration_sigma = 0.2 #from DDPG paper
         self.noise = OUNoise(self.action_size, self.exploration_mu, self.exploration_theta, self.exploration_sigma)
 
         # Replay memory
-        self.buffer_size = 100000
+        self.buffer_size = 100000 #from DDPG paper 100000
         self.batch_size = 64
         self.memory = ReplayBuffer(self.buffer_size, self.batch_size)
 
         # Algorithm parameters
         self.gamma = 0.99  # discount factor
         self.tau = 0.01  # for soft update of target parameters
+#         self.tau = 0.001 # from DDPG paper
+        
+        # Score tracker and learning parameters
+        self.best_score = -np.inf
 
     def reset_episode(self):
         self.noise.reset()
         state = self.task.reset()
         self.last_state = state
+        
+        self.total_reward = 0.0
+        self.count = 0
+
         return state
 
     def step(self, action, reward, next_state, done):
          # Save experience / reward
         self.memory.add(self.last_state, action, reward, next_state, done)
+
+        # Save experience / reward
+        self.total_reward += reward
+        self.count += 1
 
         # Learn, if enough samples are available in memory
         if len(self.memory) > self.batch_size:
@@ -226,6 +251,13 @@ class DDPG():
 
         # Roll over last state and action
         self.last_state = next_state
+        
+        if done:
+            self.score = self.total_reward / float(self.count) if self.count else 0.0
+            if self.score > self.best_score:
+                self.best_score = self.score
+
+        
 
     def act(self, state):
         """Returns actions for given state(s) as per current policy."""
@@ -258,6 +290,8 @@ class DDPG():
         # Soft-update target models
         self.soft_update(self.critic_local.model, self.critic_target.model)
         self.soft_update(self.actor_local.model, self.actor_target.model)   
+        
+
 
     def soft_update(self, local_model, target_model):
         """Soft update model parameters."""
