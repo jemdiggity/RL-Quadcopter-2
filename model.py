@@ -28,7 +28,7 @@ class ReplayBuffer:
         """Return the current size of internal memory."""
         return len(self.memory)
 
-from keras import layers, models, optimizers
+from keras import layers, models, optimizers, activations, initializers
 from keras import backend as K
 
 class Actor:
@@ -60,24 +60,30 @@ class Actor:
         states = layers.Input(shape=(self.state_size,), name='states')
 
         # Add hidden layers
-        net = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(states)
+        # net = layers.Dense(units=256, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(states)
+        # net = layers.BatchNormalization()(net)
+        # net = layers.Dense(units=256, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net)
+        # net = layers.BatchNormalization()(net)
+        # net = layers.Dense(units=256, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net)
+        # net = layers.BatchNormalization()(net)
+
+        net = layers.Dense(units=400)(states)
         net = layers.BatchNormalization()(net)
-        net = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net)
+        net = layers.Activation('relu')(net)
+        net = layers.Dense(units=300)(net)
         net = layers.BatchNormalization()(net)
-        net = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net)
-        net = layers.BatchNormalization()(net)
-#         net = layers.Dense(units=320, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net)
-#         net = layers.BatchNormalization()(net)
-        
+        net = layers.Activation('relu')(net)
+
         # Try different layer sizes, activations, add batch normalization, regularizers, etc.
 
         # Add final output layer with sigmoid activation
-        raw_actions = layers.Dense(units=self.action_size, activation='sigmoid',
+        actions = layers.Dense(units=self.action_size, activation='tanh',
+            kernel_initializer=initializers.RandomUniform(minval=-0.003, maxval=0.003),
             name='raw_actions')(net)
 
         # Scale [0, 1] output for each action dimension to proper range
-        actions = layers.Lambda(lambda x: (x * self.action_range) + self.action_low,
-            name='actions')(raw_actions)
+        # actions = layers.Lambda(lambda x: (x * self.action_range) + self.action_low,
+        #     name='actions')(raw_actions)
 
         # Create Keras model
         self.model = models.Model(inputs=states, outputs=actions)
@@ -89,7 +95,7 @@ class Actor:
         # Incorporate any additional losses here (e.g. from regularizers)
 
         # Define optimizer and training function
-        optimizer = optimizers.Adam(lr=0.001) # learning rate from DDPG paper
+        optimizer = optimizers.Adam(lr=0.0001) # learning rate from DDPG paper
         updates_op = optimizer.get_updates(params=self.model.trainable_weights, loss=loss)
         self.train_fn = K.function(
             inputs=[self.model.input, action_gradients, K.learning_phase()],
@@ -121,21 +127,33 @@ class Critic:
         actions = layers.Input(shape=(self.action_size,), name='actions')
 
         # Add hidden layer(s) for state pathway
-        net_states = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(states)
+        net_states = layers.Dense(units=400)(states)
         net_states = layers.BatchNormalization()(net_states)
-        net_states = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net_states)
+        net_states = layers.Activation('relu')(net_states)
+        net_states = layers.Dense(units=400)(net_states)
         net_states = layers.BatchNormalization()(net_states)
-#         net_states = layers.Dense(units=64, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net_states)
-#         net_states = layers.BatchNormalization()(net_states)
-        
+        net_states = layers.Activation('relu')(net_states)
+
+        # net_states = layers.Dense(units=256, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(states)
+        # net_states = layers.BatchNormalization()(net_states)
+        # net_states = layers.Dense(units=256, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net_states)
+        # net_states = layers.BatchNormalization()(net_states)
+        # net_states = layers.Dense(units=256, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net_states)
+        # net_states = layers.BatchNormalization()(net_states)
+
         # Add hidden layer(s) for action pathway
-        net_actions = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(actions)
+        net_actions = layers.Dense(units=400)(actions)
         net_actions = layers.BatchNormalization()(net_actions)
-        net_actions = layers.Dense(units=512, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net_actions)
-        net_actions = layers.BatchNormalization()(net_actions)
-#         net_actions = layers.Dense(units=64, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net_actions)
-#         net_actions = layers.BatchNormalization()(net_actions)
-        
+        net_actions = layers.Activation('relu')(net_actions)
+
+
+        # net_actions = layers.Dense(units=256, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(actions)
+        # net_actions = layers.BatchNormalization()(net_actions)
+        # net_actions = layers.Dense(units=256, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net_actions)
+        # net_actions = layers.BatchNormalization()(net_actions)
+        # net_actions = layers.Dense(units=256, activation='relu', kernel_regularizer=layers.regularizers.l2(1e-2))(net_actions)
+        # net_actions = layers.BatchNormalization()(net_actions)
+
         # Try different layer sizes, activations, add batch normalization, regularizers, etc.
 
         # Combine state and action pathways
@@ -145,7 +163,9 @@ class Critic:
         # Add more layers to the combined network if needed
 
         # Add final output layer to prduce action values (Q values)
-        Q_values = layers.Dense(units=1, name='q_values')(net)
+        Q_values = layers.Dense(units=1,
+            name='q_values',
+            kernel_initializer=initializers.RandomUniform(minval=-0.003, maxval=0.003))(net)
 
         # Create Keras model
         self.model = models.Model(inputs=[states, actions], outputs=Q_values)
@@ -208,21 +228,21 @@ class DDPG():
         self.actor_target.model.set_weights(self.actor_local.model.get_weights())
 
         # Noise process
-        self.exploration_mu = 0
+        self.exploration_mu = 0.0
         self.exploration_theta = 0.15 #from DDPG paper
-        self.exploration_sigma = 0.2 #from DDPG paper
+        self.exploration_sigma = 0.3 #from DDPG paper
         self.noise = OUNoise(self.action_size, self.exploration_mu, self.exploration_theta, self.exploration_sigma)
 
         # Replay memory
-        self.buffer_size = 100000 #from DDPG paper 100000
+        self.buffer_size = 1000000 #from DDPG paper 100000
         self.batch_size = 64
         self.memory = ReplayBuffer(self.buffer_size, self.batch_size)
 
         # Algorithm parameters
         self.gamma = 0.99  # discount factor
-        self.tau = 0.01  # for soft update of target parameters
+        self.tau = 0.001  # for soft update of target parameters
 #         self.tau = 0.001 # from DDPG paper
-        
+
         # Score tracker and learning parameters
         self.best_score = -np.inf
 
@@ -230,7 +250,7 @@ class DDPG():
         self.noise.reset()
         state = self.task.reset()
         self.last_state = state
-        
+
         self.total_reward = 0.0
         self.count = 0
 
@@ -251,13 +271,13 @@ class DDPG():
 
         # Roll over last state and action
         self.last_state = next_state
-        
+
         if done:
             self.score = self.total_reward / float(self.count) if self.count else 0.0
             if self.score > self.best_score:
                 self.best_score = self.score
 
-        
+
 
     def act(self, state):
         """Returns actions for given state(s) as per current policy."""
@@ -289,8 +309,8 @@ class DDPG():
 
         # Soft-update target models
         self.soft_update(self.critic_local.model, self.critic_target.model)
-        self.soft_update(self.actor_local.model, self.actor_target.model)   
-        
+        self.soft_update(self.actor_local.model, self.actor_target.model)
+
 
 
     def soft_update(self, local_model, target_model):
